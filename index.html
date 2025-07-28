@@ -31,6 +31,21 @@
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
+    .status-indicator {
+      text-align: center;
+      padding: 10px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-weight: bold;
+    }
+    .status-online {
+      background: linear-gradient(45deg, #2ecc71, #27ae60);
+      color: white;
+    }
+    .status-offline {
+      background: linear-gradient(45deg, #e74c3c, #c0392b);
+      color: white;
+    }
     .upload-area {
       border: 3px dashed #667eea;
       border-radius: 15px;
@@ -135,11 +150,23 @@
       border-radius: 10px;
       transition: width 1s ease;
     }
+    .error-message {
+      background: linear-gradient(45deg, #e74c3c, #c0392b);
+      color: white;
+      padding: 15px;
+      border-radius: 10px;
+      margin: 15px 0;
+      display: none;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>🌍 Country Classifier</h1>
+    
+    <div id="statusIndicator" class="status-indicator">
+      <span id="statusText">Checking backend connection...</span>
+    </div>
     
     <div class="upload-area" id="uploadArea">
       <h3>📸 Drop an image here or click to upload</h3>
@@ -152,17 +179,60 @@
       <button id="clearBtn" style="background: linear-gradient(45deg, #e74c3c, #c0392b);" disabled>🗑️ Clear</button>
     </div>
     
+    <div class="error-message" id="errorMessage"></div>
+    
     <img id="preview" src="" alt="Image preview" hidden>
     <div id="result" hidden></div>
   </div>
 
   <script>
+    // DOM elements
     const input = document.getElementById('imageInput');
     const uploadBtn = document.getElementById('uploadBtn');
     const clearBtn = document.getElementById('clearBtn');
     const preview = document.getElementById('preview');
     const resultDiv = document.getElementById('result');
     const uploadArea = document.getElementById('uploadArea');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const statusText = document.getElementById('statusText');
+    const errorMessage = document.getElementById('errorMessage');
+
+    // API Configuration
+    const API_BASE_URL = 'http://localhost:8000';
+
+    // Check backend connection
+    async function checkBackendStatus() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/health`, {
+          method: 'GET',
+          timeout: 5000
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          statusIndicator.className = 'status-indicator status-online';
+          statusText.textContent = '✅ Backend connected - Ready to classify!';
+          console.log('✅ Backend connection successful:', data);
+          return true;
+        } else {
+          throw new Error(`Status: ${response.status}`);
+        }
+      } catch (error) {
+        statusIndicator.className = 'status-indicator status-offline';
+        statusText.textContent = '❌ Backend offline - Start server on port 8000';
+        console.error('❌ Backend connection failed:', error);
+        return false;
+      }
+    }
+
+    // Show error message
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block';
+      setTimeout(() => {
+        errorMessage.style.display = 'none';
+      }, 5000);
+    }
 
     // Drag and drop functionality
     uploadArea.addEventListener('dragover', (e) => {
@@ -194,6 +264,18 @@
       const file = input.files[0];
       if (!file) return;
       
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        showError('Please select a valid image file.');
+        return;
+      }
+      
+      // Validate file size (10MB limit)
+      if (file.size > 10 * 1024 * 1024) {
+        showError('File size too large. Please select an image under 10MB.');
+        return;
+      }
+      
       preview.src = URL.createObjectURL(file);
       preview.hidden = false;
       resultDiv.hidden = true;
@@ -206,15 +288,24 @@
       }, 100);
     }
 
+    // Upload button click handler
     uploadBtn.addEventListener('click', async () => {
       const file = input.files[0];
       if (!file) {
-        alert('Please select an image first.');
+        showError('Please select an image first.');
+        return;
+      }
+
+      // Check backend status before making request
+      const isBackendOnline = await checkBackendStatus();
+      if (!isBackendOnline) {
+        showError('Backend server is not running. Please start the server on port 8000.');
         return;
       }
 
       uploadBtn.disabled = true;
-      resultDiv.innerHTML = '<div class="loading"></div>Analyzing image features...';
+      uploadBtn.innerHTML = '<div class="loading"></div>Analyzing...';
+      resultDiv.innerHTML = '<div class="loading"></div>Extracting image features and predicting country...';
       resultDiv.hidden = false;
 
       // Create FormData for API request
@@ -222,29 +313,36 @@
       formData.append('file', file);
 
       try {
-        const response = await fetch('/classify-country/', {
+        const response = await fetch(`${API_BASE_URL}/classify-country/`, {
           method: 'POST',
           body: formData
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
         }
 
         const data = await response.json();
         
+        // Display results
         resultDiv.innerHTML = `
           <h3>🎯 Classification Results</h3>
           <div style="margin: 15px 0;">
             <strong>Detected Features:</strong><br>
-            ${data.features ? data.features.split(',').map(feature => `<span class="feature-tag">${feature.trim()}</span>`).join('') : 'N/A'}
+            ${data.features ? data.features.split(',').map(feature => 
+              `<span class="feature-tag">${feature.trim()}</span>`
+            ).join('') : '<span class="feature-tag">General visual analysis</span>'}
           </div>
           <div style="margin: 15px 0;">
-            <strong>🌍 Predicted Country:</strong> <span style="font-size: 1.3em; font-weight: bold; color: #667eea;">${data.country || 'Unknown'}</span>
+            <strong>🌍 Predicted Country:</strong> 
+            <span style="font-size: 1.3em; font-weight: bold; color: #667eea;">
+              ${data.country || 'Unknown'}
+            </span>
           </div>
-          ${data.confidence ? `
+          ${data.confidence !== undefined ? `
           <div style="margin: 15px 0;">
-            <strong>Confidence Level:</strong> ${data.confidence}%
+            <strong>Confidence Level:</strong> ${Math.round(data.confidence)}%
             <div class="confidence-bar">
               <div class="confidence-fill" style="width: ${data.confidence}%"></div>
             </div>
@@ -257,25 +355,34 @@
           ` : ''}
         `;
 
+        console.log('✅ Classification successful:', data);
+
       } catch (error) {
+        console.error('Classification error:', error);
         resultDiv.innerHTML = `
           <div style="color: #e74c3c;">
             <strong>❌ Error:</strong> ${error.message}
           </div>
           <div style="margin-top: 10px; font-size: 0.9em; color: #666;">
-            Please check your connection and try again.
+            ${error.message.includes('Failed to fetch') ? 
+              'Cannot connect to backend server. Make sure it\'s running on port 8000.' :
+              'Please try again with a different image or check the console for more details.'
+            }
           </div>
         `;
+        showError(`Classification failed: ${error.message}`);
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.innerHTML = '🔍 Classify Image';
+        
+        // Smooth scroll to results
+        setTimeout(() => {
+          resultDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
       }
-
-      uploadBtn.disabled = false;
-      
-      // Smooth scroll to results
-      setTimeout(() => {
-        resultDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 100);
     });
 
+    // Clear button click handler
     clearBtn.addEventListener('click', () => {
       input.value = '';
       preview.hidden = true;
@@ -283,9 +390,33 @@
       resultDiv.hidden = true;
       uploadBtn.disabled = true;
       clearBtn.disabled = true;
+      errorMessage.style.display = 'none';
       
       // Smooth scroll back to top
       uploadArea.scrollIntoView({ behavior: 'smooth' });
+    });
+
+    // Initialize app
+    window.addEventListener('load', () => {
+      checkBackendStatus();
+      
+      // Re-check backend status every 30 seconds
+      setInterval(checkBackendStatus, 30000);
+    });
+
+    // Handle file paste from clipboard
+    document.addEventListener('paste', (e) => {
+      const items = e.clipboardData.items;
+      for (let item of items) {
+        if (item.type.indexOf('image') !== -1) {
+          const blob = item.getAsFile();
+          const dt = new DataTransfer();
+          dt.items.add(blob);
+          input.files = dt.files;
+          handleFileSelect();
+          break;
+        }
+      }
     });
   </script>
 </body>
