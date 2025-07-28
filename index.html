@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Country Classifier</title>
+  <style>
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+      max-width: 700px; 
+      margin: 40px auto; 
+      padding: 0 20px; 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #333;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 30px;
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+      backdrop-filter: blur(10px);
+    }
+    h1 { 
+      text-align: center; 
+      color: #2c3e50;
+      margin-bottom: 30px;
+      font-size: 2.5rem;
+      background: linear-gradient(45deg, #667eea, #764ba2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .upload-area {
+      border: 3px dashed #667eea;
+      border-radius: 15px;
+      padding: 40px 20px;
+      text-align: center;
+      margin: 20px 0;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      background: linear-gradient(45deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+    }
+    .upload-area:hover {
+      border-color: #764ba2;
+      background: linear-gradient(45deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+      transform: translateY(-2px);
+    }
+    .upload-area.dragover {
+      border-color: #764ba2;
+      background: linear-gradient(45deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
+    }
+    #imageInput { display: none; }
+    #preview { 
+      max-width: 100%; 
+      max-height: 400px;
+      margin: 20px 0; 
+      border-radius: 15px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      transition: all 0.3s ease;
+    }
+    #preview:hover {
+      transform: scale(1.02);
+    }
+    button { 
+      padding: 15px 30px; 
+      font-size: 1.1rem; 
+      cursor: pointer;
+      border: none;
+      border-radius: 50px;
+      background: linear-gradient(45deg, #667eea, #764ba2);
+      color: white;
+      font-weight: bold;
+      margin: 10px 5px;
+      transition: all 0.3s ease;
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    #result { 
+      margin-top: 30px; 
+      background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+      padding: 25px; 
+      border-radius: 15px;
+      border-left: 5px solid #667eea;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+      animation: slideIn 0.5s ease;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .feature-tag {
+      display: inline-block;
+      background: linear-gradient(45deg, #667eea, #764ba2);
+      color: white;
+      padding: 5px 12px;
+      border-radius: 20px;
+      margin: 3px;
+      font-size: 0.9rem;
+      font-weight: bold;
+    }
+    .confidence-bar {
+      width: 100%;
+      height: 20px;
+      background: #e9ecef;
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .confidence-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      border-radius: 10px;
+      transition: width 1s ease;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🌍 Country Classifier</h1>
+    
+    <div class="upload-area" id="uploadArea">
+      <h3>📸 Drop an image here or click to upload</h3>
+      <p>Upload a street view or landscape image to identify the country</p>
+      <input type="file" id="imageInput" accept="image/*">
+    </div>
+    
+    <div style="text-align: center;">
+      <button id="uploadBtn" disabled>🔍 Classify Image</button>
+      <button id="clearBtn" style="background: linear-gradient(45deg, #e74c3c, #c0392b);" disabled>🗑️ Clear</button>
+    </div>
+    
+    <img id="preview" src="" alt="Image preview" hidden>
+    <div id="result" hidden></div>
+  </div>
+
+  <script>
+    const input = document.getElementById('imageInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const preview = document.getElementById('preview');
+    const resultDiv = document.getElementById('result');
+    const uploadArea = document.getElementById('uploadArea');
+
+    // Drag and drop functionality
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        input.files = files;
+        handleFileSelect();
+      }
+    });
+
+    uploadArea.addEventListener('click', () => {
+      input.click();
+    });
+
+    input.addEventListener('change', handleFileSelect);
+
+    function handleFileSelect() {
+      const file = input.files[0];
+      if (!file) return;
+      
+      preview.src = URL.createObjectURL(file);
+      preview.hidden = false;
+      resultDiv.hidden = true;
+      uploadBtn.disabled = false;
+      clearBtn.disabled = false;
+      
+      // Smooth scroll to preview
+      setTimeout(() => {
+        preview.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    }
+
+    uploadBtn.addEventListener('click', async () => {
+      const file = input.files[0];
+      if (!file) {
+        alert('Please select an image first.');
+        return;
+      }
+
+      uploadBtn.disabled = true;
+      resultDiv.innerHTML = '<div class="loading"></div>Analyzing image features...';
+      resultDiv.hidden = false;
+
+      // Create FormData for API request
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/classify-country/', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        resultDiv.innerHTML = `
+          <h3>🎯 Classification Results</h3>
+          <div style="margin: 15px 0;">
+            <strong>Detected Features:</strong><br>
+            ${data.features ? data.features.split(',').map(feature => `<span class="feature-tag">${feature.trim()}</span>`).join('') : 'N/A'}
+          </div>
+          <div style="margin: 15px 0;">
+            <strong>🌍 Predicted Country:</strong> <span style="font-size: 1.3em; font-weight: bold; color: #667eea;">${data.country || 'Unknown'}</span>
+          </div>
+          ${data.confidence ? `
+          <div style="margin: 15px 0;">
+            <strong>Confidence Level:</strong> ${data.confidence}%
+            <div class="confidence-bar">
+              <div class="confidence-fill" style="width: ${data.confidence}%"></div>
+            </div>
+          </div>
+          ` : ''}
+          ${data.explanation ? `
+          <div style="margin: 15px 0;">
+            <strong>💡 Explanation:</strong> ${data.explanation}
+          </div>
+          ` : ''}
+        `;
+
+      } catch (error) {
+        resultDiv.innerHTML = `
+          <div style="color: #e74c3c;">
+            <strong>❌ Error:</strong> ${error.message}
+          </div>
+          <div style="margin-top: 10px; font-size: 0.9em; color: #666;">
+            Please check your connection and try again.
+          </div>
+        `;
+      }
+
+      uploadBtn.disabled = false;
+      
+      // Smooth scroll to results
+      setTimeout(() => {
+        resultDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    });
+
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      preview.hidden = true;
+      preview.src = '';
+      resultDiv.hidden = true;
+      uploadBtn.disabled = true;
+      clearBtn.disabled = true;
+      
+      // Smooth scroll back to top
+      uploadArea.scrollIntoView({ behavior: 'smooth' });
+    });
+  </script>
+</body>
+</html>
